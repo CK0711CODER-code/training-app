@@ -68,6 +68,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue'
 .segment{display:flex;background:var(--c-surface2);border-radius:var(--radius-sm);padding:2px;gap:0;margin-bottom:12px;}
 .seg-btn{flex:1;padding:7px 4px;border:none;border-radius:8px;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--c-text2);transition:all 0.2s;}
 .seg-btn.active{background:var(--c-surface);color:var(--c-text);box-shadow:0 1px 4px rgba(0,0,0,0.12);}
+/* Workout Chips */
+.wo-chip{flex-shrink:0;display:flex;align-items:center;gap:5px;padding:8px 14px;border-radius:20px;border:1.5px solid var(--c-border);background:var(--c-surface);color:var(--c-text2);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all 0.15s;font-family:inherit;}
+.wo-chip.active{background:var(--c-blue);color:#fff;border-color:var(--c-blue);box-shadow:0 3px 10px rgba(0,122,255,.3);}
+.wo-chip-new{background:none;border-style:dashed;color:var(--c-blue);}
+.wo-chip-new.active{background:var(--c-blue);color:#fff;border-style:solid;}
+.wo-chip-del{background:none;border:none;color:rgba(255,255,255,.7);font-size:13px;cursor:pointer;padding:0;line-height:1;margin-left:2px;}
+.wo-chip:not(.active) .wo-chip-del{color:var(--c-text2);}
+#workout-seg::-webkit-scrollbar{display:none;}
 /* INPUTS */
 input[type=text],input[type=number],input[type=date],input[type=time],select,textarea{width:100%;padding:10px 12px;border:1px solid var(--c-border);border-radius:var(--radius-sm);background:var(--c-surface);color:var(--c-text);font-size:15px;font-family:inherit;outline:none;transition:border-color 0.15s;}
 input:focus,select:focus,textarea:focus{border-color:var(--c-blue);}
@@ -212,10 +220,15 @@ label{display:block;font-size:13px;color:var(--c-text2);margin-bottom:4px;font-w
         <div class="card-title" style="margin-bottom:0">Workout auswählen</div>
         <button class="btn btn-ghost btn-sm" id="edit-workout-btn" title="Workout bearbeiten" style="font-size:13px">✏️ Bearbeiten</button>
       </div>
-      <div class="segment" id="workout-seg">
-        <button class="seg-btn active" data-w="A">Workout A</button>
-        <button class="seg-btn" data-w="B">Workout B</button>
-        <button class="seg-btn" data-w="custom">+ Neu</button>
+      <!-- Zeile 1: Eingebaute Workouts + Neu-Button -->
+      <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+        <div id="workout-seg" style="display:contents"></div>
+        <button id="new-workout-btn" class="wo-chip wo-chip-new">＋ Neu</button>
+      </div>
+      <!-- Zeile 2: Custom Workout Dropdown (erscheint nur wenn Custom Workouts vorhanden) -->
+      <div id="custom-wo-row" style="display:none;margin-top:8px">
+        <div style="font-size:11px;color:var(--c-text2);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Eigene Workouts</div>
+        <div id="custom-wo-list" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
       <div id="workout-label" style="font-size:12px;color:var(--c-text2);margin-top:6px;text-align:center"></div>
     </div>
@@ -457,7 +470,7 @@ label{display:block;font-size:13px;color:var(--c-text2);margin-bottom:4px;font-w
       <button class="seg-btn" data-p="year">Jahr</button>
     </div>
 
-    <div class="card">
+    <div class="card" id="weekly-goal-card">
       <div class="card-title">Wochenziel</div>
       <div class="ring-container">
         <svg width="140" height="140" viewBox="0 0 140 140" id="goal-ring-svg">
@@ -808,31 +821,97 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 document.getElementById('kraft-date').value = today();
 function today(){return new Date().toISOString().slice(0,10);}
 
-document.querySelectorAll('#workout-seg .seg-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#workout-seg .seg-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentWorkout = btn.dataset.w;
-    currentRound = 1;
-    document.getElementById('custom-builder').style.display = currentWorkout === 'custom' ? 'block' : 'none';
-    document.getElementById('rep-table-card').style.display = currentWorkout === 'custom' ? 'none' : 'block';
-    // hide total-rounds stepper for custom workout (has its own)
-    document.querySelector('.card:has(#total-minus)').style.display = currentWorkout === 'custom' ? 'none' : 'block';
-    if(currentWorkout !== 'custom'){ updateTotalRoundsDisplay(); renderRepTable(); }
-    else buildCustomExerciseRows();
-    updateWorkoutLabel();
+// ─── KRAFT SEGMENT ───────────────────────────────────────────────────────────
+function renderKraftSegment(){
+  const seg = document.getElementById('workout-seg');
+  const customs = getCustomWorkouts();
+  seg.innerHTML = '';
+
+  // Eingebaute Workouts A + B als Chips
+  ['A','B'].forEach(key => {
+    const btn = document.createElement('button');
+    btn.className = 'wo-chip' + (currentWorkout === key ? ' active' : '');
+    btn.textContent = WORKOUTS[key].name;
+    btn.addEventListener('click', () => selectWorkout(key));
+    seg.appendChild(btn);
   });
-});
+
+  // "+ Neu" Button Status
+  document.getElementById('new-workout-btn')?.classList.toggle('active', currentWorkout === 'new');
+
+  // Custom Workouts als Liste darunter
+  const customRow = document.getElementById('custom-wo-row');
+  const customList = document.getElementById('custom-wo-list');
+  if(!customs.length){ customRow.style.display = 'none'; return; }
+  customRow.style.display = 'block';
+  customList.innerHTML = '';
+
+  customs.forEach(wk => {
+    const isActive = currentWorkout === wk.name;
+    const row = document.createElement('div');
+    row.style.cssText = `display:flex;align-items:center;gap:8px;padding:10px 13px;border-radius:11px;cursor:pointer;border:1.5px solid ${isActive ? 'var(--c-blue)' : 'var(--c-border)'};background:${isActive ? 'var(--c-blue)' : 'var(--c-surface)'};transition:all .15s`;
+
+    const label = document.createElement('span');
+    label.style.cssText = `flex:1;font-size:14px;font-weight:${isActive?'600':'500'};color:${isActive?'#fff':'var(--c-text)'}`;
+    label.textContent = `💪 ${wk.name}`;
+
+    const meta = document.createElement('span');
+    meta.style.cssText = `font-size:12px;color:${isActive?'rgba(255,255,255,.75)':'var(--c-text2)'}`;
+    meta.textContent = `${wk.rounds} Runden · ${wk.exercises.length} Übungen`;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = '✏️';
+    editBtn.title = 'Bearbeiten';
+    editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;opacity:.7';
+    editBtn.addEventListener('click', e => { e.stopPropagation(); currentWorkout = wk.name; openEditWorkout(); });
+
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '🗑';
+    delBtn.title = 'Löschen';
+    delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;opacity:.7';
+    delBtn.addEventListener('click', e => { e.stopPropagation(); deleteCustomWorkout(wk.name); });
+
+    row.appendChild(label);
+    row.appendChild(meta);
+    row.appendChild(editBtn);
+    row.appendChild(delBtn);
+    row.addEventListener('click', () => selectWorkout(wk.name));
+    customList.appendChild(row);
+  });
+}
+
+function selectWorkout(key){
+  currentWorkout = key;
+  currentRound = 1;
+  kraftReps = {};
+  renderKraftSegment();
+  const isNew = key === 'new';
+  document.getElementById('custom-builder').style.display = isNew ? 'block' : 'none';
+  document.getElementById('rep-table-card').style.display = isNew ? 'none' : 'block';
+  document.querySelector('.card:has(#total-minus)').style.display = isNew ? 'none' : 'block';
+  if(!isNew){ updateTotalRoundsDisplay(); renderRepTable(); }
+  else buildCustomExerciseRows();
+  updateWorkoutLabel();
+}
+
+function deleteCustomWorkout(name){
+  if(!confirm(`"${name}" wirklich löschen?`)) return;
+  const customs = getCustomWorkouts().filter(w => w.name !== name);
+  saveCustomWorkouts(customs);
+  if(currentWorkout === name) selectWorkout('A');
+  else renderKraftSegment();
+  showToast(`🗑 "${name}" gelöscht`);
+}
 
 function getActiveWorkout(){
   if(currentWorkout === 'A') return WORKOUTS.A;
   if(currentWorkout === 'B') return WORKOUTS.B;
   const customs = getCustomWorkouts();
-  return customs.find(w => w.name === document.getElementById('custom-name')?.value) || WORKOUTS.A;
+  return customs.find(w => w.name === currentWorkout) || WORKOUTS.A;
 }
 
 function renderRepTable(){
-  const wk = currentWorkout === 'A' ? WORKOUTS.A : WORKOUTS.B;
+  const wk = getActiveWorkout();
   document.getElementById('round-val').textContent = currentRound;
   document.getElementById('total-rounds').textContent = wk.rounds;
   document.getElementById('round-of').textContent = wk.rounds;
@@ -870,7 +949,7 @@ function colorRepCell(inp){
 
 // ─── TOTAL ROUNDS STEPPER ────────────────────────────────────────────────────
 function updateTotalRoundsDisplay(){
-  const wk = currentWorkout === 'A' ? WORKOUTS.A : WORKOUTS.B;
+  const wk = getActiveWorkout();
   document.getElementById('total-rounds').textContent = wk.rounds;
   document.getElementById('round-of').textContent = wk.rounds;
   if(currentRound > wk.rounds){ currentRound = wk.rounds; }
@@ -878,11 +957,11 @@ function updateTotalRoundsDisplay(){
 }
 
 document.getElementById('total-minus').addEventListener('click', () => {
-  const wk = currentWorkout === 'A' ? WORKOUTS.A : WORKOUTS.B;
+  const wk = getActiveWorkout();
   if(wk.rounds > 3){ wk.rounds--; updateTotalRoundsDisplay(); renderRepTable(); }
 });
 document.getElementById('total-plus').addEventListener('click', () => {
-  const wk = currentWorkout === 'A' ? WORKOUTS.A : WORKOUTS.B;
+  const wk = getActiveWorkout();
   if(wk.rounds < 10){ wk.rounds++; updateTotalRoundsDisplay(); renderRepTable(); }
 });
 
@@ -1090,7 +1169,7 @@ document.getElementById('add-exercise-btn').addEventListener('click', () => {
 document.getElementById('save-custom-workout').addEventListener('click', () => {
   const name = document.getElementById('custom-name').value.trim();
   if(!name){ showToast('⚠️ Bitte Workout-Name eingeben'); return; }
-  const rounds = customRoundsVal || parseInt(document.getElementById('custom-rounds').value) || 5;
+  const rounds = customRoundsVal || 5;
   const exs = customExercises.filter(e => e.name.trim());
   if(!exs.length){ showToast('⚠️ Mindestens eine Übung hinzufügen'); return; }
   const customs = getCustomWorkouts();
@@ -1098,21 +1177,18 @@ document.getElementById('save-custom-workout').addEventListener('click', () => {
   const wk = {name, rounds, exercises: exs, type:'custom'};
   if(existing >= 0) customs[existing] = wk; else customs.push(wk);
   saveCustomWorkouts(customs);
-  // Save as session
-  const session = {
-    id: Date.now().toString(),
-    workout: name,
-    type: 'kraft',
-    date: document.getElementById('kraft-date').value || today(),
-    rounds,
-    exercises: exs,
-    reps: {},
-    notes: document.getElementById('kraft-notes').value
-  };
-  const sessions = getSessions();
-  sessions.unshift(session);
-  saveSessions(sessions);
-  showToast('✅ Workout gespeichert!');
+  // Workout als aktives auswählen + Segment neu rendern
+  currentWorkout = name;
+  renderKraftSegment();
+  document.getElementById('custom-builder').style.display = 'none';
+  document.getElementById('rep-table-card').style.display = 'block';
+  document.querySelector('.card:has(#total-minus)').style.display = 'block';
+  kraftReps = {};
+  currentRound = 1;
+  updateTotalRoundsDisplay();
+  renderRepTable();
+  updateWorkoutLabel();
+  showToast(`✅ "${name}" gespeichert!`);
 });
 
 // ─── EDIT WORKOUT MODAL ──────────────────────────────────────────────────────
@@ -1287,6 +1363,7 @@ document.getElementById('ewo-save').addEventListener('click', () => {
 document.getElementById('edit-wo-close').addEventListener('click', () => document.getElementById('edit-wo-modal').classList.remove('open'));
 document.getElementById('edit-wo-modal').addEventListener('click', e => { if(e.target === e.currentTarget) e.currentTarget.classList.remove('open'); });
 document.getElementById('edit-workout-btn').addEventListener('click', openEditWorkout);
+document.getElementById('new-workout-btn').addEventListener('click', () => selectWorkout('new'));
 
 function updateWorkoutLabel(){
   const lbl = document.getElementById('workout-label');
@@ -1667,11 +1744,16 @@ document.getElementById('edit-modal').addEventListener('click', e => {
 });
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
+function updateGoalCardVisibility(){
+  document.getElementById('weekly-goal-card').style.display = dashPeriod === 'week' ? 'block' : 'none';
+}
+
 document.querySelectorAll('#dash-period-seg .seg-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#dash-period-seg .seg-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     dashPeriod = btn.dataset.p;
+    updateGoalCardVisibility();
     renderDashboard();
   });
 });
@@ -1716,6 +1798,7 @@ function calcStreak(){
 }
 
 function renderDashboard(){
+  updateGoalCardVisibility();
   const sessions = getFilteredSessions(dashPeriod);
   const kraft = sessions.filter(s=>s.type==='kraft');
   const laufen = sessions.filter(s=>s.type==='laufen');
@@ -2298,8 +2381,10 @@ supa.auth.onAuthStateChange(async (event, session) => {
     hideAuthModal();
     // UI neu laden
     Object.assign(WORKOUTS, loadWorkouts());
+    currentWorkout = 'A';
     currentRound = 1;
     kraftReps = {};
+    renderKraftSegment();
     updateTotalRoundsDisplay();
     renderRepTable();
     updateWorkoutLabel();
@@ -2321,6 +2406,7 @@ supa.auth.onAuthStateChange(async (event, session) => {
     setTimeout(showAuthModal, 400);
   }
   // Lokale Daten sofort rendern (ggf. überschrieben durch onAuthStateChange)
+  renderKraftSegment();
   updateTotalRoundsDisplay();
   renderRepTable();
   updateWorkoutLabel();
